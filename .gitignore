@@ -1,0 +1,38 @@
+# Python virtual environments
+.venv/
+venv/
+env/
+
+# Python caches and local tooling
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Jupyter temporary files
+.ipynb_checkpoints/
+
+# Local environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# Editors and operating-system files
+.DS_Store
+.AppleDouble
+.LSOverride
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Course material and reproducible source data
+*.pdf
+adult.data
+
+# Keep artifacts/ tracked as grading evidence:
+# report.md, charts, metrics, and the saved Pipeline model.
