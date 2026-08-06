@@ -21,6 +21,7 @@ import plotly.express as px
 import polars as pl
 import seaborn as sns
 from IPython.display import display
+from scipy import sparse, stats
 from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
@@ -28,7 +29,6 @@ from sklearn.metrics import accuracy_score, classification_report, f1_score
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
-from scipy import sparse
 
 
 COLUMNS = [
@@ -58,16 +58,48 @@ NUMERIC_COLUMNS = [
     "hours-per-week",
 ]
 
-CATEGORICAL_COLUMNS = [
+EVER_MARRIED_STATUSES = {
+    "Married-civ-spouse",
+    "Married-AF-spouse",
+    "Married-spouse-absent",
+    "Divorced",
+    "Separated",
+    "Widowed",
+}
+NEVER_MARRIED_STATUSES = {"Never-married"}
+VALID_MARITAL_STATUSES = EVER_MARRIED_STATUSES | NEVER_MARRIED_STATUSES
+
+MODEL_NUMERIC_COLUMNS = [
+    "age",
+    "education-num",
+    "capital-gain",
+    "capital-loss",
+    "hours-per-week",
+]
+
+MODEL_CATEGORICAL_COLUMNS = [
     "workclass",
-    "education",
-    "marital-status",
     "occupation",
-    "relationship",
     "race",
     "sex",
     "native-country",
+    "income",
 ]
+
+LEAKAGE_COLUMNS = ["marital-status", "relationship"]
+
+
+def _with_marriage_experience(frame: pd.DataFrame) -> pd.DataFrame:
+    """원래 혼인 상태로부터 결혼 경험 이진 타깃을 생성한다."""
+
+    selected = frame.loc[frame["marital-status"].isin(VALID_MARITAL_STATUSES)].copy()
+    selected["marriage_experience"] = np.where(
+        selected["marital-status"].isin(EVER_MARRIED_STATUSES),
+        "결혼 경험 있음",
+        "결혼 경험 없음",
+    )
+    selected["ever_married"] = selected["marital-status"].isin(EVER_MARRIED_STATUSES).astype(int)
+    return selected
 
 
 def _markdown_table(frame: pd.DataFrame, include_index: bool = False) -> str:
@@ -107,6 +139,7 @@ class PipelineResult:
     report_path: Path
     model_path: Path
     plotly_path: Path
+    ttest_path: Path
 
 
 def _load_with_pandas(data_path: Path) -> tuple[pd.DataFrame, float]:
@@ -238,9 +271,53 @@ def _save_statistics(cleaned: pd.DataFrame, output_dir: Path) -> tuple[pd.DataFr
     return descriptive, correlation
 
 
+def _analyze_marriage_education(cleaned: pd.DataFrame, output_dir: Path) -> pd.DataFrame:
+    """결혼 경험 여부에 따른 평균 교육연수 차이를 Welch t-test로 검정한다."""
+
+    analysis = _with_marriage_experience(cleaned).dropna(subset=["education-num"])
+    never = analysis.loc[analysis["ever_married"] == 0, "education-num"].astype(float).to_numpy()
+    ever = analysis.loc[analysis["ever_married"] == 1, "education-num"].astype(float).to_numpy()
+    t_stat, p_value = stats.ttest_ind(ever, never, equal_var=False, alternative="two-sided")
+
+    variance_ever = ever.var(ddof=1)
+    variance_never = never.var(ddof=1)
+    standard_error = np.sqrt(variance_ever / len(ever) + variance_never / len(never))
+    welch_df = (variance_ever / len(ever) + variance_never / len(never)) ** 2 / (
+        (variance_ever / len(ever)) ** 2 / (len(ever) - 1)
+        + (variance_never / len(never)) ** 2 / (len(never) - 1)
+    )
+    difference = ever.mean() - never.mean()
+    critical = stats.t.ppf(0.975, df=welch_df)
+    pooled_sd = np.sqrt(
+        ((len(ever) - 1) * variance_ever + (len(never) - 1) * variance_never)
+        / (len(ever) + len(never) - 2)
+    )
+    hedges_correction = 1 - 3 / (4 * (len(ever) + len(never)) - 9)
+
+    result = pd.DataFrame(
+        {
+            "결혼 경험 없음 표본수": [len(never)],
+            "결혼 경험 있음 표본수": [len(ever)],
+            "결혼 경험 없음 평균": [never.mean()],
+            "결혼 경험 있음 평균": [ever.mean()],
+            "평균 차이(있음-없음)": [difference],
+            "95% CI 하한": [difference - critical * standard_error],
+            "95% CI 상한": [difference + critical * standard_error],
+            "Welch t": [t_stat],
+            "p-value": [p_value],
+            "Hedges g": [hedges_correction * difference / pooled_sd],
+            "판정": ["귀무가설 기각" if p_value < 0.05 else "귀무가설 기각 못함"],
+        }
+    )
+    result.to_csv(output_dir / "marriage_ttest_results.csv", index=False, encoding="utf-8-sig")
+    return result
+
+
 def _save_visualizations(cleaned: pd.DataFrame, output_dir: Path) -> tuple[Path, Path]:
     """Seaborn 정적 차트와 Plotly 인터랙티브 HTML을 생성한다."""
 
+    analysis = _with_marriage_experience(cleaned).dropna(subset=["education-num"])
+    group_order = ["결혼 경험 없음", "결혼 경험 있음"]
     static_path = output_dir / "seaborn_eda.png"
     sns.set_theme(style="whitegrid")
     available_fonts = {item.name for item in font_manager.fontManager.ttflist}
@@ -251,56 +328,59 @@ def _save_visualizations(cleaned: pd.DataFrame, output_dir: Path) -> tuple[Path,
     plt.rcParams["axes.unicode_minus"] = False
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
     sns.histplot(
-        data=cleaned,
+        data=analysis,
         x="education-num",
-        hue="income",
+        hue="marriage_experience",
+        hue_order=group_order,
         discrete=True,
         stat="probability",
         common_norm=False,
         ax=axes[0],
     )
     axes[0].set(
-        title="소득 집단별 교육연수 분포",
+        title="결혼 경험 여부별 교육연수 분포",
         xlabel="교육연수",
         ylabel="집단 내 비율",
     )
-    sns.boxplot(data=cleaned, x="income", y="hours-per-week", ax=axes[1])
+    sns.boxplot(
+        data=analysis,
+        x="marriage_experience",
+        y="education-num",
+        order=group_order,
+        ax=axes[1],
+    )
     axes[1].set(
-        title="소득 집단별 주당 근로시간",
-        xlabel="소득 집단",
-        ylabel="주당 근로시간",
+        title="결혼 경험 여부별 교육연수 비교",
+        xlabel="결혼 경험",
+        ylabel="교육연수",
     )
     plt.tight_layout()
     fig.savefig(static_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
 
-    income_by_education = (
-        cleaned.assign(income_over_50k=cleaned["income"].eq(">50K").astype(int))
-        .groupby("education", as_index=False)
-        .agg(표본수=("income_over_50k", "size"), 고소득비율=("income_over_50k", "mean"))
-        .sort_values("고소득비율", ascending=False)
+    interactive = px.box(
+        analysis,
+        x="marriage_experience",
+        y="education-num",
+        color="marriage_experience",
+        category_orders={"marriage_experience": group_order},
+        points=False,
+        title="결혼 경험 여부별 교육연수 분포",
+        labels={"marriage_experience": "결혼 경험", "education-num": "교육연수"},
     )
-    interactive = px.bar(
-        income_by_education,
-        x="education",
-        y="고소득비율",
-        color="표본수",
-        hover_data={"표본수": ":,", "고소득비율": ":.2%"},
-        title="교육수준별 연소득 5만 달러 초과 비율",
-        labels={"education": "교육수준", "고소득비율": "고소득 비율"},
-    )
-    interactive.update_layout(xaxis_tickangle=-45)
-    interactive.update_yaxes(tickformat=".0%")
-    interactive_path = output_dir / "plotly_income_by_education.html"
+    interactive.update_layout(showlegend=False)
+    interactive_path = output_dir / "plotly_education_by_marriage.html"
     interactive.write_html(interactive_path, include_plotlyjs=True)
     return static_path, interactive_path
 
 
-def _train_income_model(cleaned: pd.DataFrame, output_dir: Path) -> tuple[Pipeline, dict[str, object], Path]:
-    """분할 후 결측치를 처리하고 소득 분류 모델을 학습·평가·저장한다."""
+def _train_marriage_model(cleaned: pd.DataFrame, output_dir: Path) -> tuple[Pipeline, dict[str, object], Path]:
+    """결혼 경험을 예측하는 분류 Pipeline을 학습·평가·저장한다."""
 
-    features = cleaned[NUMERIC_COLUMNS + CATEGORICAL_COLUMNS]
-    target = cleaned["income"].eq(">50K").astype(int)
+    analysis = _with_marriage_experience(cleaned)
+    feature_columns = MODEL_NUMERIC_COLUMNS + MODEL_CATEGORICAL_COLUMNS
+    features = analysis[feature_columns]
+    target = analysis["ever_married"]
     x_train, x_test, y_train, y_test = train_test_split(
         features,
         target,
@@ -323,8 +403,8 @@ def _train_income_model(cleaned: pd.DataFrame, output_dir: Path) -> tuple[Pipeli
     )
     preprocessor = ColumnTransformer(
         transformers=[
-            ("numeric", numeric_pipeline, NUMERIC_COLUMNS),
-            ("categorical", categorical_pipeline, CATEGORICAL_COLUMNS),
+            ("numeric", numeric_pipeline, MODEL_NUMERIC_COLUMNS),
+            ("categorical", categorical_pipeline, MODEL_CATEGORICAL_COLUMNS),
         ]
     )
     model = Pipeline(
@@ -344,22 +424,29 @@ def _train_income_model(cleaned: pd.DataFrame, output_dir: Path) -> tuple[Pipeli
 
     missing_after_preprocessing = count_missing(transformed_train) + count_missing(transformed_test)
     metrics: dict[str, object] = {
+        "target": "ever_married",
+        "positive_class": "결혼 경험 있음",
+        "feature_columns": feature_columns,
+        "excluded_leakage_columns": LEAKAGE_COLUMNS,
         "accuracy": float(accuracy_score(y_test, predictions)),
         "f1": float(f1_score(y_test, predictions)),
+        "train_rows": int(len(y_train)),
         "test_rows": int(len(y_test)),
+        "train_positive_rate": float(y_train.mean()),
+        "test_positive_rate": float(y_test.mean()),
         "train_missing_before_preprocessing": int(x_train.isna().sum().sum()),
         "test_missing_before_preprocessing": int(x_test.isna().sum().sum()),
         "missing_after_preprocessing": missing_after_preprocessing,
         "classification_report": classification_report(
             y_test,
             predictions,
-            target_names=["<=50K", ">50K"],
+            target_names=["결혼 경험 없음", "결혼 경험 있음"],
             output_dict=True,
             zero_division=0,
         ),
     }
 
-    model_path = output_dir / "adult_income_pipeline.joblib"
+    model_path = output_dir / "marriage_experience_pipeline.joblib"
     metrics_path = output_dir / "model_metrics.json"
     joblib.dump(model, model_path)
     metrics_path.write_text(
@@ -375,6 +462,7 @@ def _generate_report(
     cleaning_summary: pd.DataFrame,
     descriptive: pd.DataFrame,
     correlation: pd.DataFrame,
+    ttest_result: pd.DataFrame,
     metrics: dict[str, object],
 ) -> Path:
     """실행 결과를 Markdown 보고서로 자동 작성한다."""
@@ -385,9 +473,17 @@ def _generate_report(
         correlation_without_diagonal.loc[column, column] = pd.NA
     pair = correlation_without_diagonal.abs().stack().idxmax()
     pair_value = float(correlation.loc[pair[0], pair[1]])
+    ttest = ttest_result.iloc[0]
 
     report_path = output_dir / "report.md"
     report = f"""# Day 2 종합실습 자동 분석 보고서
+
+## 연구 질문과 가설
+
+- 연구 질문: 결혼 경험 여부에 따라 평균 교육연수가 다른가?
+- 귀무가설(H0): 두 집단의 평균 교육연수는 같다.
+- 대립가설(H1): 두 집단의 평균 교육연수는 다르다.
+- 유의수준: 0.05
 
 ## 데이터 로딩 비교
 
@@ -414,27 +510,43 @@ Pandas와 Polars에서 모두 {int(comparison.loc[0, '행']):,}행 × {int(compa
 대각선을 제외한 절댓값 기준 최대 상관관계는 `{pair[0]}`와 `{pair[1]}`이며,
 상관계수는 {pair_value:.3f}이다. 전체 행렬은 [correlation_matrix.csv](correlation_matrix.csv)에 저장했다.
 
-## ML Pipeline 평가
+## 결혼 경험 여부와 교육연수 통계 분석
+
+- 결혼 경험 없음: {int(ttest['결혼 경험 없음 표본수']):,}명, 평균 {float(ttest['결혼 경험 없음 평균']):.3f}년
+- 결혼 경험 있음: {int(ttest['결혼 경험 있음 표본수']):,}명, 평균 {float(ttest['결혼 경험 있음 평균']):.3f}년
+- 평균 차이(있음-없음): {float(ttest['평균 차이(있음-없음)']):.3f}년
+- Welch t-test p-value: {float(ttest['p-value']):.3e}
+- Hedges g: {float(ttest['Hedges g']):.3f}
+- 판정: {ttest['판정']}
+
+p-value가 0.05보다 작아 두 집단의 평균 교육연수 차이는 통계적으로 유의하다.
+다만 효과크기는 매우 작으므로 통계적 유의성과 실제 차이의 크기를 구분해 해석해야 한다.
+전체 검정 결과는 [marriage_ttest_results.csv](marriage_ttest_results.csv)에 저장했다.
+
+## 결혼 경험 예측 ML Pipeline
 
 - 모델: 수치형 중앙값 대체·표준화 + 범주형 최빈값 대체·원-핫 인코딩 + 로지스틱 회귀
+- 타깃: 결혼 경험 없음(0) / 있음(1)
+- 누수 방지 제외 변수: `marital-status`, `relationship`
 - 분할 전 결측치: {int(metrics['train_missing_before_preprocessing']) + int(metrics['test_missing_before_preprocessing']):,}개
 - Pipeline 전처리 후 결측치: {int(metrics['missing_after_preprocessing']):,}개
 - 테스트 표본: {int(metrics['test_rows']):,}건
 - 정확도: {float(metrics['accuracy']):.4f}
 - F1: {float(metrics['f1']):.4f}
-- 저장 모델: [adult_income_pipeline.joblib](adult_income_pipeline.joblib)
+- 저장 모델: [marriage_experience_pipeline.joblib](marriage_experience_pipeline.joblib)
 
-정확도는 전체 정답 비율이고, F1은 상대적으로 적은 `>50K` 집단의 정밀도와 재현율을 함께 반영한다.
+정확도는 전체 정답 비율이며, F1은 `결혼 경험 있음` 클래스의 정밀도와 재현율을 함께 반영한다.
+이 모델은 결혼 경험과 변수 사이의 패턴을 분류하며 결혼 여부의 원인이나 미래 결혼을 예측하지 않는다.
 
 ## 시각화 산출물
 
 - [Seaborn 정적 차트](seaborn_eda.png)
-- [Plotly 인터랙티브 차트](plotly_income_by_education.html)
+- [Plotly 인터랙티브 차트](plotly_education_by_marriage.html)
 
 ## 해석 범위
 
-소득 예측 결과는 변수 간 연관성을 학습한 것으로 개인의 능력이나 미래 소득에 대한 인과적 판단이 아니다.
-현재 성능은 단일 학습·테스트 분할 결과이며 데이터와 분할 기준이 달라지면 평가 지표도 달라질 수 있다.
+분석 결과는 1994년 미국 Adult 데이터에서 관찰된 연관성이며 결혼 경험의 인과효과가 아니다.
+ML 성능은 단일 학습·테스트 분할 결과이며, 다른 시기·집단에서는 성능이 달라질 수 있다.
 """
     report_path.write_text(report, encoding="utf-8")
     return report_path
@@ -465,14 +577,16 @@ def run_pipeline(
     deduplicated, cleaning_summary = _remove_duplicates(pandas_frame)
     cleaning_summary.to_csv(output_dir / "cleaning_summary.csv", index=False, encoding="utf-8-sig")
     descriptive, correlation = _save_statistics(deduplicated, output_dir)
+    ttest_result = _analyze_marriage_education(deduplicated, output_dir)
     _save_visualizations(deduplicated, output_dir)
-    _, metrics, model_path = _train_income_model(deduplicated, output_dir)
+    _, metrics, model_path = _train_marriage_model(deduplicated, output_dir)
     report_path = _generate_report(
         output_dir,
         comparison,
         cleaning_summary,
         descriptive,
         correlation,
+        ttest_result,
         metrics,
     )
 
@@ -480,6 +594,7 @@ def run_pipeline(
     display(cleaning_summary)
     display(descriptive.round(3))
     display(correlation.round(3))
+    display(ttest_result.round(4))
     display(pd.DataFrame([{"정확도": metrics["accuracy"], "F1": metrics["f1"]}]).round(4))
 
     return PipelineResult(
@@ -493,7 +608,8 @@ def run_pipeline(
         output_dir=output_dir,
         report_path=report_path,
         model_path=model_path,
-        plotly_path=output_dir / "plotly_income_by_education.html",
+        plotly_path=output_dir / "plotly_education_by_marriage.html",
+        ttest_path=output_dir / "marriage_ttest_results.csv",
     )
 
 

@@ -32,8 +32,11 @@ End-to-End 파이프라인(`day2_pipeline.py`)은 다음 작업을 수행합니�
 2. 분할 전 완전 중복 제거 및 분할 후 Pipeline 내부 결측치 대체
 3. 분위수를 포함한 기술통계와 수치형 상관행렬 저장
 4. Seaborn 정적 차트 및 Plotly 인터랙티브 HTML 생성
-5. scikit-learn Pipeline으로 소득 분류 모델 학습
+5. scikit-learn Pipeline으로 결혼 경험 여부 분류 모델 학습
 6. 정확도·F1 평가, joblib 모델 저장, `report.md` 자동 생성
+
+결혼 경험 예측 모델은 `marital-status`에서 타깃을 생성합니다. 타깃을 직접 드러내는
+`marital-status`와 `relationship`은 입력 변수에서 제외해 데이터 누수를 방지합니다.
 
 Welch t-test는 실제 두 집단의 전체 평균을 비교합니다. 보정 회귀분석은 나이와 성별 분포를 동일하게 고려했을 때의 모델 기반 평균 차이를 추정합니다. 보정 분석은 실제로 동일한 사람을 일대일 매칭한 결과가 아닙니다.
 
@@ -65,10 +68,11 @@ JupyterLab에서 `Restart Kernel and Run All Cells`를 실행합니다. 원본 �
 - `cleaning_summary.csv`: 분할 전 중복 제거와 결측치 처리 단계 요약
 - `descriptive_statistics.csv`: 분위수를 포함한 기술통계
 - `correlation_matrix.csv`: 수치형 상관행렬
+- `marriage_ttest_results.csv`: 결혼 경험 여부별 교육연수 Welch t-test 결과
 - `seaborn_eda.png`: 정적 EDA 차트
-- `plotly_income_by_education.html`: 인터랙티브 차트
+- `plotly_education_by_marriage.html`: 결혼 경험 여부별 교육연수 인터랙티브 차트
 - `model_metrics.json`: 정확도·F1 및 상세 평가 결과
-- `adult_income_pipeline.joblib`: 저장된 전처리·모델 Pipeline
+- `marriage_experience_pipeline.joblib`: 저장된 결혼 경험 예측 Pipeline
 - `report.md`: 자동 생성 분석 보고서
 
 ## 연령 범위 변경
