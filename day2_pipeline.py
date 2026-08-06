@@ -272,7 +272,7 @@ def _save_statistics(cleaned: pd.DataFrame, output_dir: Path) -> tuple[pd.DataFr
 
 
 def _analyze_marriage_education(cleaned: pd.DataFrame, output_dir: Path) -> pd.DataFrame:
-    """결혼 경험 여부에 따른 평균 교육연수 차이를 Welch t-test로 검정한다."""
+    """결혼 경험 여부에 따른 평균 교육수준 차이를 Welch t-test로 검정한다."""
 
     analysis = _with_marriage_experience(cleaned).dropna(subset=["education-num"])
     never = analysis.loc[analysis["ever_married"] == 0, "education-num"].astype(float).to_numpy()
@@ -338,8 +338,8 @@ def _save_visualizations(cleaned: pd.DataFrame, output_dir: Path) -> tuple[Path,
         ax=axes[0],
     )
     axes[0].set(
-        title="결혼 경험 여부별 교육연수 분포",
-        xlabel="교육연수",
+        title="결혼 경험 여부별 교육수준 분포",
+        xlabel="교육수준",
         ylabel="집단 내 비율",
     )
     sns.boxplot(
@@ -350,9 +350,9 @@ def _save_visualizations(cleaned: pd.DataFrame, output_dir: Path) -> tuple[Path,
         ax=axes[1],
     )
     axes[1].set(
-        title="결혼 경험 여부별 교육연수 비교",
+        title="결혼 경험 여부별 교육수준 비교",
         xlabel="결혼 경험",
-        ylabel="교육연수",
+        ylabel="교육수준",
     )
     plt.tight_layout()
     fig.savefig(static_path, dpi=150, bbox_inches="tight")
@@ -365,8 +365,8 @@ def _save_visualizations(cleaned: pd.DataFrame, output_dir: Path) -> tuple[Path,
         color="marriage_experience",
         category_orders={"marriage_experience": group_order},
         points=False,
-        title="결혼 경험 여부별 교육연수 분포",
-        labels={"marriage_experience": "결혼 경험", "education-num": "교육연수"},
+        title="결혼 경험 여부별 교육수준 분포",
+        labels={"marriage_experience": "결혼 경험", "education-num": "교육수준"},
     )
     interactive.update_layout(showlegend=False)
     interactive_path = output_dir / "plotly_education_by_marriage.html"
@@ -480,9 +480,9 @@ def _generate_report(
 
 ## 연구 질문과 가설
 
-- 연구 질문: 결혼 경험 여부에 따라 평균 교육연수가 다른가?
-- 귀무가설(H0): 두 집단의 평균 교육연수는 같다.
-- 대립가설(H1): 두 집단의 평균 교육연수는 다르다.
+- 연구 질문: 결혼 경험 여부에 따라 평균 교육수준이 다른가?
+- 귀무가설(H0): 두 집단의 평균 교육수준은 같다.
+- 대립가설(H1): 두 집단의 평균 교육수준은 다르다.
 - 유의수준: 0.05
 
 ## 데이터 로딩 비교
@@ -510,16 +510,16 @@ Pandas와 Polars에서 모두 {int(comparison.loc[0, '행']):,}행 × {int(compa
 대각선을 제외한 절댓값 기준 최대 상관관계는 `{pair[0]}`와 `{pair[1]}`이며,
 상관계수는 {pair_value:.3f}이다. 전체 행렬은 [correlation_matrix.csv](correlation_matrix.csv)에 저장했다.
 
-## 결혼 경험 여부와 교육연수 통계 분석
+## 결혼 경험 여부와 교육수준 통계 분석
 
-- 결혼 경험 없음: {int(ttest['결혼 경험 없음 표본수']):,}명, 평균 {float(ttest['결혼 경험 없음 평균']):.3f}년
-- 결혼 경험 있음: {int(ttest['결혼 경험 있음 표본수']):,}명, 평균 {float(ttest['결혼 경험 있음 평균']):.3f}년
-- 평균 차이(있음-없음): {float(ttest['평균 차이(있음-없음)']):.3f}년
+- 결혼 경험 없음: {int(ttest['결혼 경험 없음 표본수']):,}명, 평균 {float(ttest['결혼 경험 없음 평균']):.3f}
+- 결혼 경험 있음: {int(ttest['결혼 경험 있음 표본수']):,}명, 평균 {float(ttest['결혼 경험 있음 평균']):.3f}
+- 평균 차이(있음-없음): {float(ttest['평균 차이(있음-없음)']):.3f}
 - Welch t-test p-value: {float(ttest['p-value']):.3e}
 - Hedges g: {float(ttest['Hedges g']):.3f}
 - 판정: {ttest['판정']}
 
-p-value가 0.05보다 작아 두 집단의 평균 교육연수 차이는 통계적으로 유의하다.
+p-value가 0.05보다 작아 두 집단의 평균 교육수준 차이는 통계적으로 유의하다.
 다만 효과크기는 매우 작으므로 통계적 유의성과 실제 차이의 크기를 구분해 해석해야 한다.
 전체 검정 결과는 [marriage_ttest_results.csv](marriage_ttest_results.csv)에 저장했다.
 

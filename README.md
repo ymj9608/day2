@@ -1,11 +1,11 @@
-# Day 2 종합실습 — 결혼 경험에 따른 평균 교육연수 비교
+# Day 2 종합실습 — 결혼 경험에 따른 평균 교육수준 비교
 
-Adult 데이터에서 결혼 경험이 있는 집단과 없는 집단의 평균 교육연수(`education-num`) 차이를 분석합니다.
+Adult 데이터에서 결혼 경험이 있는 집단과 없는 집단의 평균 교육수준(`education-num`) 차이를 분석합니다.
 
 ## 연구 가설
 
-- H0: 결혼 경험이 있는 집단과 없는 집단의 평균 교육연수는 같다.
-- H1: 결혼 경험이 있는 집단과 없는 집단의 평균 교육연수는 다르다.
+- H0: 결혼 경험이 있는 집단과 없는 집단의 평균 교육수준은 같다.
+- H1: 결혼 경험이 있는 집단과 없는 집단의 평균 교육수준은 다르다.
 - 유의수준: 0.05, 양측검정
 
 ## 집단 정의
@@ -68,9 +68,9 @@ JupyterLab에서 `Restart Kernel and Run All Cells`를 실행합니다. 원본 �
 - `cleaning_summary.csv`: 분할 전 중복 제거와 결측치 처리 단계 요약
 - `descriptive_statistics.csv`: 분위수를 포함한 기술통계
 - `correlation_matrix.csv`: 수치형 상관행렬
-- `marriage_ttest_results.csv`: 결혼 경험 여부별 교육연수 Welch t-test 결과
+- `marriage_ttest_results.csv`: 결혼 경험 여부별 교육수준 Welch t-test 결과
 - `seaborn_eda.png`: 정적 EDA 차트
-- `plotly_education_by_marriage.html`: 결혼 경험 여부별 교육연수 인터랙티브 차트
+- `plotly_education_by_marriage.html`: 결혼 경험 여부별 교육수준 인터랙티브 차트
 - `model_metrics.json`: 정확도·F1 및 상세 평가 결과
 - `marriage_experience_pipeline.joblib`: 저장된 결혼 경험 예측 Pipeline
 - `report.md`: 자동 생성 분석 보고서
@@ -103,4 +103,4 @@ MAX_AGE = 54
 
 ## 해석 제한
 
-이 결과는 1994년 미국 Adult 데이터에서 관찰된 집단 간 연관성입니다. 결혼 경험이 교육연수를 변화시켰다는 인과관계로 해석할 수 없습니다. 표본이 크면 작은 차이도 유의할 수 있으므로 p-value뿐 아니라 평균 차이, 95% 신뢰구간, 효과크기를 함께 확인해야 합니다.
+이 결과는 1994년 미국 Adult 데이터에서 관찰된 집단 간 연관성입니다. 결혼 경험이 교육수준을 변화시켰다는 인과관계로 해석할 수 없습니다. 표본이 크면 작은 차이도 유의할 수 있으므로 p-value뿐 아니라 평균 차이, 95% 신뢰구간, 효과크기를 함께 확인해야 합니다.
