@@ -1,34 +1,56 @@
 {
-  "accuracy": 0.8569452980946527,
-  "f1": 0.6761739130434783,
+  "target": "ever_married",
+  "positive_class": "결혼 경험 있음",
+  "feature_columns": [
+    "age",
+    "education-num",
+    "capital-gain",
+    "capital-loss",
+    "hours-per-week",
+    "workclass",
+    "occupation",
+    "race",
+    "sex",
+    "native-country",
+    "income"
+  ],
+  "excluded_leakage_columns": [
+    "marital-status",
+    "relationship"
+  ],
+  "accuracy": 0.8228334357713584,
+  "f1": 0.8696438665912946,
+  "train_rows": 26029,
   "test_rows": 6508,
-  "train_missing_before_preprocessing": 3418,
-  "test_missing_before_preprocessing": 843,
+  "train_positive_rate": 0.672173345115064,
+  "test_positive_rate": 0.6720958819913952,
+  "train_missing_before_preprocessing": 3448,
+  "test_missing_before_preprocessing": 813,
   "missing_after_preprocessing": 0,
   "classification_report": {
-    "<=50K": {
-      "precision": 0.8854066525668141,
-      "recall": 0.9321862348178138,
-      "f1-score": 0.9081944581402228,
-      "support": 4940.0
+    "결혼 경험 없음": {
+      "precision": 0.7407952871870398,
+      "recall": 0.7071227741330834,
+      "f1-score": 0.7235674898105969,
+      "support": 2134.0
     },
-    ">50K": {
-      "precision": 0.7436878347360367,
-      "recall": 0.6198979591836735,
-      "f1-score": 0.6761739130434783,
-      "support": 1568.0
+    "결혼 경험 있음": {
+      "precision": 0.8602102437933348,
+      "recall": 0.879286694101509,
+      "f1-score": 0.8696438665912946,
+      "support": 4374.0
     },
-    "accuracy": 0.8569452980946527,
+    "accuracy": 0.8228334357713584,
     "macro avg": {
-      "precision": 0.8145472436514254,
-      "recall": 0.7760420970007437,
-      "f1-score": 0.7921841855918506,
+      "precision": 0.8005027654901873,
+      "recall": 0.7932047341172962,
+      "f1-score": 0.7966056782009457,
       "support": 6508.0
     },
     "weighted avg": {
-      "precision": 0.8512617376377024,
-      "recall": 0.8569452980946527,
-      "f1-score": 0.8522927656522549,
+      "precision": 0.8210535877703118,
+      "recall": 0.8228334357713584,
+      "f1-score": 0.8217448211011272,
       "support": 6508.0
     }
   }
