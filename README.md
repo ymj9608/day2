@@ -29,7 +29,7 @@ Adult 데이터에서 결혼 경험이 있는 집단과 없는 집단의 평균 
 End-to-End 파이프라인(`day2_pipeline.py`)은 다음 작업을 수행합니다.
 
 1. Pandas·Polars 데이터 로딩 결과, 시간, 추정 메모리 비교
-2. 범주형 결측치 `Unknown` 대체 및 완전 중복 행 제거
+2. 분할 전 완전 중복 제거 및 분할 후 Pipeline 내부 결측치 대체
 3. 분위수를 포함한 기술통계와 수치형 상관행렬 저장
 4. Seaborn 정적 차트 및 Plotly 인터랙티브 HTML 생성
 5. scikit-learn Pipeline으로 소득 분류 모델 학습
@@ -62,7 +62,7 @@ JupyterLab에서 `Restart Kernel and Run All Cells`를 실행합니다. 원본 �
 실행 결과는 `artifacts/`에 저장됩니다.
 
 - `pandas_polars_comparison.csv`: 로딩 결과·성능 비교
-- `cleaning_summary.csv`: 결측치·중복 처리 전후
+- `cleaning_summary.csv`: 분할 전 중복 제거와 결측치 처리 단계 요약
 - `descriptive_statistics.csv`: 분위수를 포함한 기술통계
 - `correlation_matrix.csv`: 수치형 상관행렬
 - `seaborn_eda.png`: 정적 EDA 차트

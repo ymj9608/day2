@@ -15,6 +15,7 @@ from time import perf_counter
 import joblib
 import matplotlib.pyplot as plt
 from matplotlib import font_manager
+import numpy as np
 import pandas as pd
 import plotly.express as px
 import polars as pl
@@ -27,6 +28,7 @@ from sklearn.metrics import accuracy_score, classification_report, f1_score
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from scipy import sparse
 
 
 COLUMNS = [
@@ -97,8 +99,8 @@ class PipelineResult:
     rows_before: int
     rows_after: int
     duplicates_removed: int
-    missing_before: int
-    missing_after: int
+    missing_before_split: int
+    missing_after_preprocessing: int
     accuracy: float
     f1: float
     output_dir: Path
@@ -169,25 +171,15 @@ def _library_comparison(
     return comparison
 
 
-def _clean_data(raw: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """결측 범주를 명시적으로 대체하고 완전 중복 행을 제거한다.
+def _remove_duplicates(raw: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """학습·테스트 분할 전에 완전 중복 행만 제거한다.
 
-    분석 핵심 변수에는 결측치가 없지만, 원본의 workclass·occupation·
-    native-country 결측치는 'Unknown'으로 대체해 처리 결과를 남긴다.
+    결측치는 이 단계에서 대체하지 않는다. 데이터 분할 후 수치형 중앙값과
+    범주형 최빈값을 학습 데이터에서 계산하도록 Pipeline에 전달한다.
     """
 
-    missing_before_by_column = raw.isna().sum()
-    missing_columns = missing_before_by_column[missing_before_by_column > 0].index.tolist()
-    cleaned = raw.copy()
-
-    for column in missing_columns:
-        if cleaned[column].dtype.kind in "biufc":
-            cleaned[column] = cleaned[column].fillna(cleaned[column].median())
-        else:
-            cleaned[column] = cleaned[column].fillna("Unknown")
-
-    duplicate_count = int(cleaned.duplicated().sum())
-    cleaned = cleaned.drop_duplicates().reset_index(drop=True)
+    duplicate_count = int(raw.duplicated().sum())
+    deduplicated = raw.drop_duplicates().reset_index(drop=True)
 
     cleaning_summary = pd.DataFrame(
         {
@@ -197,27 +189,27 @@ def _clean_data(raw: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
                 "완전 중복 행",
                 "분석 핵심 변수 결측치",
             ],
-            "처리 전": [
+            "원본": [
                 len(raw),
                 int(raw.isna().sum().sum()),
                 int(raw.duplicated().sum()),
                 int(raw[["education-num", "marital-status", "age", "sex"]].isna().sum().sum()),
             ],
-            "처리 후": [
-                len(cleaned),
-                int(cleaned.isna().sum().sum()),
-                int(cleaned.duplicated().sum()),
-                int(cleaned[["education-num", "marital-status", "age", "sex"]].isna().sum().sum()),
+            "분할 전 중복 제거 후": [
+                len(deduplicated),
+                int(deduplicated.isna().sum().sum()),
+                int(deduplicated.duplicated().sum()),
+                int(deduplicated[["education-num", "marital-status", "age", "sex"]].isna().sum().sum()),
             ],
-            "처리 방법": [
-                "완전 중복 제거",
-                "범주형 Unknown 대체·수치형 중앙값 대체",
-                f"{duplicate_count}건 제거",
+            "처리 위치 및 방법": [
+                "분할 전 완전 중복 제거",
+                "분할 후 Pipeline에서 대체",
+                f"분할 전 {duplicate_count}건 제거",
                 "원래 결측치 없음—별도 대체 불필요",
             ],
         }
     )
-    return cleaned, cleaning_summary
+    return deduplicated, cleaning_summary
 
 
 def _save_statistics(cleaned: pd.DataFrame, output_dir: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -305,7 +297,7 @@ def _save_visualizations(cleaned: pd.DataFrame, output_dir: Path) -> tuple[Path,
 
 
 def _train_income_model(cleaned: pd.DataFrame, output_dir: Path) -> tuple[Pipeline, dict[str, object], Path]:
-    """소득 분류 Pipeline을 학습하고 정확도·F1을 계산한 뒤 모델을 저장한다."""
+    """분할 후 결측치를 처리하고 소득 분류 모델을 학습·평가·저장한다."""
 
     features = cleaned[NUMERIC_COLUMNS + CATEGORICAL_COLUMNS]
     target = cleaned["income"].eq(">50K").astype(int)
@@ -343,10 +335,21 @@ def _train_income_model(cleaned: pd.DataFrame, output_dir: Path) -> tuple[Pipeli
     )
     model.fit(x_train, y_train)
     predictions = model.predict(x_test)
+    transformed_train = model.named_steps["preprocessor"].transform(x_train)
+    transformed_test = model.named_steps["preprocessor"].transform(x_test)
+
+    def count_missing(values: object) -> int:
+        array = values.data if sparse.issparse(values) else np.asarray(values)
+        return int(np.isnan(array).sum())
+
+    missing_after_preprocessing = count_missing(transformed_train) + count_missing(transformed_test)
     metrics: dict[str, object] = {
         "accuracy": float(accuracy_score(y_test, predictions)),
         "f1": float(f1_score(y_test, predictions)),
         "test_rows": int(len(y_test)),
+        "train_missing_before_preprocessing": int(x_train.isna().sum().sum()),
+        "test_missing_before_preprocessing": int(x_test.isna().sum().sum()),
+        "missing_after_preprocessing": missing_after_preprocessing,
         "classification_report": classification_report(
             y_test,
             predictions,
@@ -397,8 +400,8 @@ Pandas와 Polars에서 모두 {int(comparison.loc[0, '행']):,}행 × {int(compa
 
 {_markdown_table(cleaning_summary)}
 
-분석 핵심 변수에는 원래 결측치가 없었다. 그 외 범주형 결측치는 `Unknown`으로 명시적으로 대체했고,
-완전 중복 행은 독립 관측으로 볼 근거가 부족하므로 제거했다.
+완전 중복 행은 학습·테스트 분할 전에 제거했다. 남은 결측치는 분할 시점까지 유지하고,
+수치형 중앙값과 범주형 최빈값을 학습 데이터에서 계산해 학습·테스트 데이터에 각각 적용했다.
 
 ## 기술통계
 
@@ -414,6 +417,8 @@ Pandas와 Polars에서 모두 {int(comparison.loc[0, '행']):,}행 × {int(compa
 ## ML Pipeline 평가
 
 - 모델: 수치형 중앙값 대체·표준화 + 범주형 최빈값 대체·원-핫 인코딩 + 로지스틱 회귀
+- 분할 전 결측치: {int(metrics['train_missing_before_preprocessing']) + int(metrics['test_missing_before_preprocessing']):,}개
+- Pipeline 전처리 후 결측치: {int(metrics['missing_after_preprocessing']):,}개
 - 테스트 표본: {int(metrics['test_rows']):,}건
 - 정확도: {float(metrics['accuracy']):.4f}
 - F1: {float(metrics['f1']):.4f}
@@ -457,11 +462,11 @@ def run_pipeline(
     )
     comparison.to_csv(output_dir / "pandas_polars_comparison.csv", index=False, encoding="utf-8-sig")
 
-    cleaned, cleaning_summary = _clean_data(pandas_frame)
+    deduplicated, cleaning_summary = _remove_duplicates(pandas_frame)
     cleaning_summary.to_csv(output_dir / "cleaning_summary.csv", index=False, encoding="utf-8-sig")
-    descriptive, correlation = _save_statistics(cleaned, output_dir)
-    _save_visualizations(cleaned, output_dir)
-    _, metrics, model_path = _train_income_model(cleaned, output_dir)
+    descriptive, correlation = _save_statistics(deduplicated, output_dir)
+    _save_visualizations(deduplicated, output_dir)
+    _, metrics, model_path = _train_income_model(deduplicated, output_dir)
     report_path = _generate_report(
         output_dir,
         comparison,
@@ -479,10 +484,10 @@ def run_pipeline(
 
     return PipelineResult(
         rows_before=len(pandas_frame),
-        rows_after=len(cleaned),
-        duplicates_removed=len(pandas_frame) - len(cleaned),
-        missing_before=int(pandas_frame.isna().sum().sum()),
-        missing_after=int(cleaned.isna().sum().sum()),
+        rows_after=len(deduplicated),
+        duplicates_removed=len(pandas_frame) - len(deduplicated),
+        missing_before_split=int(deduplicated.isna().sum().sum()),
+        missing_after_preprocessing=int(metrics["missing_after_preprocessing"]),
         accuracy=float(metrics["accuracy"]),
         f1=float(metrics["f1"]),
         output_dir=output_dir,
